@@ -29,7 +29,7 @@ function App() {
   
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isConfigured, setIsConfigured] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(true);
 
   const wsRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -38,18 +38,7 @@ function App() {
   // Check AI Configuration
   // ---------------------------------------------------------------------------
   const checkSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/settings`);
-      if (res.ok) {
-        setIsConfigured(true);
-      } else {
-        setIsConfigured(false);
-        setIsSettingsOpen(true);
-      }
-    } catch (e) {
-      setIsConfigured(false);
-      setIsSettingsOpen(true);
-    }
+    setIsConfigured(true);
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -172,8 +161,24 @@ function App() {
     selectedFiles.forEach(f => formData.append('files', f));
 
     try {
+      const headers = {};
+      const savedSettings = localStorage.getItem('ai_settings');
+      if (savedSettings) {
+        try {
+          const settings = JSON.parse(savedSettings);
+          if (settings.provider_type) headers['X-AI-Provider-Type'] = settings.provider_type;
+          if (settings.provider_name) headers['X-AI-Provider-Name'] = settings.provider_name;
+          if (settings.base_url) headers['X-AI-Base-Url'] = settings.base_url;
+          if (settings.model_name) headers['X-AI-Model-Name'] = settings.model_name;
+          if (settings.api_key) headers['X-AI-API-Key'] = settings.api_key;
+        } catch (e) {
+          console.error("Failed to parse settings", e);
+        }
+      }
+
       const res = await fetch(`${API_URL}/jobs/${activeJob.id}/candidates`, {
         method: 'POST',
+        headers: headers,
         body: formData
       });
       if (!res.ok) {

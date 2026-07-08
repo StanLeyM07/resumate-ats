@@ -48,18 +48,4 @@ class CandidateResponse(BaseModel):
     filename: str
     score_data: CandidateScore
 
-# --- SETTINGS SCHEMAS ---
 
-class AISettingsBase(BaseModel):
-    provider_type: str = Field(..., description="'local' or 'cloud'")
-    provider_name: str = Field(..., description="'Ollama', 'NVIDIA NIM', 'OpenAI', etc.")
-    api_key: Optional[str] = Field(None, description="Plain text API key from frontend")
-    base_url: str = Field(..., description="API base URL")
-    model_name: str = Field(..., description="Model string, e.g. 'llama3.2' or 'meta/llama-3.1-70b-instruct'")
-
-class AISettingsResponse(BaseModel):
-    provider_type: str
-    provider_name: str
-    base_url: str
-    model_name: str
-    has_api_key: bool = Field(..., description="True if an API key is currently saved")

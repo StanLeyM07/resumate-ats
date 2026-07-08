@@ -1,10 +1,38 @@
 import { useState, useEffect } from 'react';
 
-export default function AISettingsModal({ isOpen, onClose, onSave, apiUrl }) {
-  const [providerType, setProviderType] = useState('local');
-  const [providerName, setProviderName] = useState('Ollama');
-  const [baseUrl, setBaseUrl] = useState('http://localhost:11434/v1');
-  const [modelName, setModelName] = useState('llama3.2');
+const PROVIDERS = {
+  local: {
+    name: 'Local Ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    models: ['llama3.2', 'mistral', 'gemma2', 'qwen2.5', 'custom...']
+  },
+  nvidia: {
+    name: 'NVIDIA NIM',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    models: ['meta/llama-3.1-8b-instruct', 'meta/llama-3.1-70b-instruct', 'mistralai/mixtral-8x22b-instruct-v0.1']
+  },
+  openai: {
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo']
+  },
+  gemini: {
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    models: ['gemini-1.5-flash', 'gemini-1.5-pro', 'custom...']
+  },
+  custom: {
+    name: 'Custom Provider',
+    baseUrl: '',
+    models: ['custom...']
+  }
+};
+
+export default function AISettingsModal({ isOpen, onClose, onSave }) {
+  const [providerId, setProviderId] = useState('nvidia');
+  const [modelName, setModelName] = useState(PROVIDERS['nvidia'].models[0]);
+  const [customModel, setCustomModel] = useState('');
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -12,65 +40,67 @@ export default function AISettingsModal({ isOpen, onClose, onSave, apiUrl }) {
 
   useEffect(() => {
     if (isOpen) {
-      // Fetch current settings if they exist
-      fetch(`${apiUrl}/settings`)
-        .then(res => {
-          if (res.ok) return res.json();
-          throw new Error('Settings not configured');
-        })
-        .then(data => {
-          setProviderType(data.provider_type);
-          setProviderName(data.provider_name);
-          setBaseUrl(data.base_url);
-          setModelName(data.model_name);
-          setHasApiKey(data.has_api_key);
-        })
-        .catch(() => {
-          // Defaults are already set
-        });
-    }
-  }, [isOpen, apiUrl]);
+      const savedSettings = localStorage.getItem('ai_settings');
+      if (savedSettings) {
+        try {
+          const data = JSON.parse(savedSettings);
+          // Find provider id by matching base URL
+          const matchedProvider = Object.entries(PROVIDERS).find(([_, p]) => p.baseUrl === data.base_url);
+          const pId = matchedProvider ? matchedProvider[0] : 'nvidia';
+          setProviderId(pId);
+          
+          if (PROVIDERS[pId].models.includes(data.model_name)) {
+            setModelName(data.model_name);
+            setCustomModel('');
+          } else {
+            setModelName('custom...');
+            setCustomModel(data.model_name);
+          }
+          
+          if (pId === 'custom') {
+            setCustomBaseUrl(data.base_url);
+          }
 
-  const handleProviderTypeChange = (type) => {
-    setProviderType(type);
-    if (type === 'local') {
-      setProviderName('Ollama');
-      setBaseUrl('http://localhost:11434/v1');
-      setModelName('llama3.2');
-    } else {
-      setProviderName('NVIDIA NIM');
-      setBaseUrl('https://integrate.api.nvidia.com/v1');
-      setModelName('meta/llama-3.1-70b-instruct');
+          setApiKey(data.api_key || '');
+          setHasApiKey(!!data.api_key);
+        } catch (e) {
+          console.error("Failed to parse settings", e);
+        }
+      }
+    }
+  }, [isOpen]);
+
+  const handleProviderChange = (e) => {
+    const newProvider = e.target.value;
+    setProviderId(newProvider);
+    setModelName(PROVIDERS[newProvider].models[0]);
+    setCustomModel('');
+    if (newProvider === 'custom') {
+      setCustomBaseUrl('https://api.groq.com/openai/v1'); // Default example
     }
   };
 
-  const handleSave = async (e) => {
+  const handleSave = (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
+    const finalModel = modelName === 'custom...' ? customModel : modelName;
+
     const payload = {
-      provider_type: providerType,
-      provider_name: providerName,
-      base_url: baseUrl,
-      model_name: modelName,
-      api_key: apiKey || null,
+      provider_type: providerId === 'local' ? 'local' : 'cloud',
+      provider_name: providerId === 'custom' ? 'Custom OpenAI-Compatible' : PROVIDERS[providerId].name,
+      base_url: providerId === 'custom' ? customBaseUrl : PROVIDERS[providerId].baseUrl,
+      model_name: finalModel,
+      api_key: apiKey || '',
     };
 
     try {
-      const res = await fetch(`${apiUrl}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to save settings');
-      }
-
-      onSave(); // Trigger callback to close modal / update app state
+      localStorage.setItem('ai_settings', JSON.stringify(payload));
+      setHasApiKey(!!apiKey);
+      onSave(); // Trigger callback to close modal
     } catch (err) {
-      setError(err.message);
+      setError("Failed to save settings to browser.");
     } finally {
       setIsLoading(false);
     }
@@ -78,75 +108,89 @@ export default function AISettingsModal({ isOpen, onClose, onSave, apiUrl }) {
 
   if (!isOpen) return null;
 
+  const currentProvider = PROVIDERS[providerId];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="glass-panel p-6 max-w-md w-full glow-border rounded-xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-bold text-white mb-1">AI Configuration</h2>
-        <p className="text-xs text-slate-400 mb-4">Select your preferred AI engine. API Keys are encrypted before being stored.</p>
+        <p className="text-xs text-slate-400 mb-2">Configure your AI engine. These settings are saved strictly in your browser and are never shared.</p>
         
+        <div className="bg-cyan-900/30 border border-cyan-800 rounded-md p-2 mb-4">
+          <p className="text-[11px] text-cyan-200 m-0">
+            <strong>💡 Tip:</strong> If you want a faster model or better accuracy, you can use your own API key below. If left blank, the system will use the default public fallback key for demonstrations!
+          </p>
+        </div>
+
         {error && <div className="bg-red-500/20 border border-red-500 text-red-400 p-2 rounded mb-3 text-xs">{error}</div>}
 
-        <form onSubmit={handleSave} className="space-y-3">
-          <div className="flex gap-2 p-1 bg-slate-900/50 rounded-lg">
-            <button
-              type="button"
-              onClick={() => handleProviderTypeChange('local')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
-                providerType === 'local' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
-              }`}
+        <form onSubmit={handleSave} className="space-y-4">
+          
+          <div>
+            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">AI Provider</label>
+            <select 
+              value={providerId} 
+              onChange={handleProviderChange}
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400"
             >
-              Local Model
-            </button>
-            <button
-              type="button"
-              onClick={() => handleProviderTypeChange('cloud')}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
-                providerType === 'cloud' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Cloud Provider
-            </button>
+              <option value="nvidia">NVIDIA NIM (Free Models)</option>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="local">Local Ollama</option>
+              <option value="custom">Custom API Endpoint</option>
+            </select>
           </div>
 
           <div>
-            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">Provider Name</label>
-            <input 
-              value={providerName} 
-              onChange={e => setProviderName(e.target.value)} 
-              required 
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400" 
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">Base URL</label>
-            <input 
-              value={baseUrl} 
-              onChange={e => setBaseUrl(e.target.value)} 
-              required 
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400" 
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">Model Name</label>
-            <input 
+            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">Model</label>
+            <select 
               value={modelName} 
-              onChange={e => setModelName(e.target.value)} 
-              required 
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400" 
+              onChange={e => setModelName(e.target.value)}
+              className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400 mb-2"
+            >
+              {currentProvider.models.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            
+            {modelName === 'custom...' && (
+              <input 
+                value={customModel} 
+                onChange={e => setCustomModel(e.target.value)} 
+                placeholder="Enter custom model name..."
+                required 
+                className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400" 
+              />
+            )}
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">
+              {providerId === 'custom' ? 'Base URL (Custom)' : 'Base URL (Auto-set)'}
+            </label>
+            <input 
+              value={providerId === 'custom' ? customBaseUrl : currentProvider.baseUrl} 
+              onChange={e => providerId === 'custom' && setCustomBaseUrl(e.target.value)}
+              disabled={providerId !== 'custom'}
+              className={`w-full rounded-md p-1.5 text-sm outline-none focus:border-cyan-400 ${
+                providerId === 'custom' 
+                  ? 'bg-slate-900/50 border border-slate-700 text-white' 
+                  : 'bg-slate-800/50 border border-slate-700 text-slate-400 cursor-not-allowed'
+              }`} 
             />
           </div>
 
-          {providerType === 'cloud' && (
+          {providerId !== 'local' && (
             <div>
-              <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">API Key</label>
+              <label className="block text-[10px] font-semibold text-cyan-400 mb-1 uppercase tracking-wider">
+                {providerId === 'custom' ? 'API Key (Required)' : 'API Key (Optional)'}
+              </label>
               <input 
                 type="password"
                 value={apiKey} 
                 onChange={e => setApiKey(e.target.value)} 
-                placeholder={hasApiKey ? "•••••••••••••••• (Leave blank to keep existing)" : "Enter API Key"}
-                required={!hasApiKey}
+                placeholder={hasApiKey ? "•••••••••••••••• (Leave blank to keep existing)" : "Enter your API Key here"}
+                required={providerId === 'custom' && !hasApiKey}
                 className="w-full bg-slate-900/50 border border-slate-700 rounded-md p-1.5 text-sm text-white outline-none focus:border-cyan-400" 
               />
             </div>

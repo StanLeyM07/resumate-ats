@@ -28,7 +28,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .schemas import JobCreate, CandidateScore
-from .database import SettingsDB, get_cipher
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +71,21 @@ def _sync_score_candidate(prompt: str, api_key: str, base_url: str, model_name: 
     )
     return response.choices[0].message.content
 
-async def score_candidate(job: JobCreate, resume_text: str, db: Session) -> CandidateScore:
+async def score_candidate(job: JobCreate, resume_text: str, ai_config: dict) -> CandidateScore:
     """
     Sends the Job Description and the Resume text to the configured AI provider to generate a CandidateScore.
     """
-    settings = db.query(SettingsDB).first()
-    if not settings:
-        raise ValueError("AI settings not configured. Please go to settings and configure a provider.")
+    # 1. Check if user provided an API Key via Headers
+    api_key = ai_config.get("api_key")
+    base_url = ai_config.get("base_url") or "https://integrate.api.nvidia.com/v1"
+    model_name = ai_config.get("model_name") or "meta/llama-3.1-70b-instruct"
 
-    api_key = None
-    if settings.api_key_encrypted:
-        cipher = get_cipher()
-        api_key = cipher.decrypt(settings.api_key_encrypted.encode()).decode()
+    # 2. If no API key was provided by the user, fallback to our Render environment variable!
+    if not api_key:
+        # Fallback to NVIDIA NIM (or Google Gemini if you prefer)
+        api_key = os.getenv("NVIDIA_API_KEY")
+        if not api_key:
+            raise ValueError("No API key provided by user, and no fallback NVIDIA_API_KEY found in server environment.")
 
     prompt = f"""
     --- JOB DESCRIPTION ---
@@ -101,7 +103,7 @@ async def score_candidate(job: JobCreate, resume_text: str, db: Session) -> Cand
 
     try:
         raw_response = await asyncio.to_thread(
-            _sync_score_candidate, prompt, api_key, settings.base_url, settings.model_name
+            _sync_score_candidate, prompt, api_key, base_url, model_name
         )
         logger.info(f"AI Raw Response: {raw_response[:100]}...")
 

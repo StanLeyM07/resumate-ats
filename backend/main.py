@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, WebSocket, WebSocketDisconnect, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
@@ -114,57 +114,9 @@ We use standard HTTP methods to interact with our resources:
 - GET /jobs -> Retrieve all jobs
 - DELETE /jobs/clear -> Delete all jobs
 - POST /jobs/{job_id}/candidates -> Upload resumes for a specific job
-- GET /settings -> Retrieve AI configuration
-- POST /settings -> Save AI configuration
 """
 
-from .schemas import AISettingsBase, AISettingsResponse
-from .database import SettingsDB, get_cipher
 
-@app.get("/settings", response_model=AISettingsResponse)
-def get_settings(db: Session = Depends(get_db)):
-    """Retrieves the current AI configuration."""
-    settings = db.query(SettingsDB).first()
-    if not settings:
-        raise HTTPException(status_code=404, detail="Settings not configured")
-    
-    return AISettingsResponse(
-        provider_type=settings.provider_type,
-        provider_name=settings.provider_name,
-        base_url=settings.base_url,
-        model_name=settings.model_name,
-        has_api_key=bool(settings.api_key_encrypted)
-    )
-
-@app.post("/settings", response_model=AISettingsResponse)
-def update_settings(settings_data: AISettingsBase, db: Session = Depends(get_db)):
-    """Updates the global AI configuration."""
-    settings = db.query(SettingsDB).first()
-    if not settings:
-        settings = SettingsDB()
-        db.add(settings)
-
-    settings.provider_type = settings_data.provider_type
-    settings.provider_name = settings_data.provider_name
-    settings.base_url = settings_data.base_url
-    settings.model_name = settings_data.model_name
-
-    # Encrypt API key if provided
-    if settings_data.api_key:
-        cipher = get_cipher()
-        encrypted_key = cipher.encrypt(settings_data.api_key.encode()).decode()
-        settings.api_key_encrypted = encrypted_key
-    
-    db.commit()
-    db.refresh(settings)
-
-    return AISettingsResponse(
-        provider_type=settings.provider_type,
-        provider_name=settings.provider_name,
-        base_url=settings.base_url,
-        model_name=settings.model_name,
-        has_api_key=bool(settings.api_key_encrypted)
-    )
 
 @app.post("/jobs", response_model=JobResponse)
 def create_job(job: JobCreate, db: Session = Depends(get_db)):
@@ -192,7 +144,12 @@ def clear_database(db: Session = Depends(get_db)):
 async def upload_candidates(
     job_id: int, 
     files: List[UploadFile] = File(...), 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_ai_provider_type: str | None = Header(None),
+    x_ai_provider_name: str | None = Header(None),
+    x_ai_base_url: str | None = Header(None),
+    x_ai_model_name: str | None = Header(None),
+    x_ai_api_key: str | None = Header(None)
 ):
     """
     Bulk upload endpoint for resumes.
@@ -238,7 +195,14 @@ async def upload_candidates(
             await manager.broadcast_progress(f"[{idx}/{len(files)}] AI Analyzing: {filename}", "processing")
             
             # 2. Score with Gemini / AI
-            score_data = await score_candidate(job_create_model, raw_text, db)
+            ai_config = {
+                "provider_type": x_ai_provider_type,
+                "provider_name": x_ai_provider_name,
+                "base_url": x_ai_base_url,
+                "model_name": x_ai_model_name,
+                "api_key": x_ai_api_key
+            }
+            score_data = await score_candidate(job_create_model, raw_text, ai_config)
             
             # 3. Save to DB
             candidate_db = CandidateDB(

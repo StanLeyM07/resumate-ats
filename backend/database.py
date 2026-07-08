@@ -1,15 +1,3 @@
-import os
-import json
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from cryptography.fernet import Fernet
-
-def get_cipher():
-    key = os.getenv("ENCRYPTION_KEY")
-    if not key:
-        raise ValueError("ENCRYPTION_KEY environment variable is missing.")
-    return Fernet(key.encode())
-
 """
 =============================================================================
 LEARNING MODULE: Relational Databases & ORMs
@@ -26,6 +14,11 @@ Key Concepts Used Here:
    the code much easier to read and maintain.
 =============================================================================
 """
+
+import os
+import json
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 DATABASE_URL = "sqlite:///./ats.db"
 
@@ -57,16 +50,6 @@ class CandidateDB(Base):
     score_data_json = Column(Text)  # We will store the Pydantic model as JSON
 
     job = relationship("JobDB", back_populates="candidates")
-
-class SettingsDB(Base):
-    __tablename__ = "settings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    provider_type = Column(String)  # 'local' or 'cloud'
-    provider_name = Column(String)  # 'Ollama', 'NVIDIA NIM', etc.
-    api_key_encrypted = Column(String, nullable=True) # Encrypted API key
-    base_url = Column(String)
-    model_name = Column(String)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
