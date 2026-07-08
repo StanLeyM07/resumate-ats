@@ -1,0 +1,18 @@
+# =============================================================================
+# LEARNING MODULE: .dockerignore
+# =============================================================================
+# Similar to .gitignore, this file tells Docker which files and directories 
+# to exclude when copying your project into the Docker image. 
+# Excluding things like node_modules and .venv drastically reduces the size 
+# of the build context and prevents conflicts between your host OS and the container.
+# =============================================================================
+
+node_modules
+.next
+dist
+.env
+.venv
+__pycache__
+*.pyc
+ats.db
+.git

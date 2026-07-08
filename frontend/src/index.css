@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #06b6d4;
+  --color-primary-hover: #0891b2;
+  --color-accent: #3b82f6;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  
+  --color-bg-base: #020617;
+  --color-bg-panel: rgba(15, 23, 42, 0.6);
+  --color-bg-terminal: #000000;
+  
+  --color-border: rgba(51, 65, 85, 0.5);
+  --color-border-glow: rgba(6, 182, 212, 0.3);
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: #f8fafc;
+  font-family: 'Inter', -apple-system, sans-serif;
+  min-height: 100vh;
+  /* Add a subtle radial gradient for the futuristic glowing orb effect */
+  background-image: radial-gradient(circle at top right, rgba(6, 182, 212, 0.1), transparent 40%),
+                    radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.1), transparent 40%);
+}
+
+.glass-panel {
+  background-color: var(--color-bg-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+}
+
+.glow-border:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 15px var(--color-border-glow);
+}
+
+/* Custom Webkit Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
