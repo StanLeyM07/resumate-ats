@@ -1,10 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/*
-=============================================================================
-LEARNING MODULE: React Functional Components & Hooks
-=============================================================================
-*/
 
 import Navbar from './components/Navbar';
 import JobForm from './components/JobForm';
@@ -19,9 +14,6 @@ import AISettingsModal from './components/AISettingsModal';
 // In development, we fallback to localhost:8000
 const isProd = import.meta.env.PROD;
 const API_URL = import.meta.env.VITE_API_URL || (isProd ? '' : 'http://localhost:8000');
-const WS_URL = isProd 
-  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/progress`
-  : 'ws://localhost:8000/ws/progress';
 
 function App() {
   const [activeJob, setActiveJob] = useState(null);
@@ -35,14 +27,20 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isConfigured, setIsConfigured] = useState(true);
 
+  // Client ID for isolated WebSockets
+  const clientIdRef = useRef(crypto.randomUUID ? crypto.randomUUID() : Date.now().toString());
+
   const wsRef = useRef(null);
   const toastTimerRef = useRef(null);
 
   // ---------------------------------------------------------------------------
-  // Check AI Configuration
+  // Init from Local Storage
   // ---------------------------------------------------------------------------
-  const checkSettings = useCallback(async () => {
-    setIsConfigured(true);
+  useEffect(() => {
+    const savedJob = localStorage.getItem('activeJob');
+    const savedCandidates = localStorage.getItem('candidates');
+    if (savedJob) setActiveJob(JSON.parse(savedJob));
+    if (savedCandidates) setCandidates(JSON.parse(savedCandidates));
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -59,8 +57,12 @@ function App() {
   // ---------------------------------------------------------------------------
   // WebSocket Setup with Cleanup
   // ---------------------------------------------------------------------------
-  const setupWebSocket = useCallback((jobId) => {
+  const setupWebSocket = useCallback(() => {
     if (wsRef.current) wsRef.current.close();
+
+    const host = isProd ? window.location.host : 'localhost:8000';
+    const protocol = isProd && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL = `${protocol}//${host}/ws/progress/${clientIdRef.current}`;
 
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
@@ -69,9 +71,6 @@ function App() {
       try {
         const data = JSON.parse(event.data);
         setTerminalLogs(prev => [...prev, { msg: data.message, status: data.status }]);
-        if (data.status === 'complete') {
-          setTimeout(() => fetchCandidates(jobId), 1000);
-        }
       } catch (err) {
         console.error('Failed to parse WebSocket message:', err);
       }
@@ -81,70 +80,27 @@ function App() {
     ws.onclose = () => console.log('WebSocket connection closed');
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) wsRef.current.close();
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // API Calls
-  // ---------------------------------------------------------------------------
-  const fetchCandidates = async (jobId) => {
-    if (!jobId) return;
-    try {
-      const res = await fetch(`${API_URL}/jobs/${jobId}/candidates`);
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
-      setCandidates(data);
-    } catch (e) {
-      console.error("Failed to fetch candidates:", e);
-    }
-  };
-
-  const checkActiveJob = async () => {
-    try {
-      const res = await fetch(`${API_URL}/jobs`);
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const jobs = await res.json();
-      if (jobs.length > 0) {
-        const job = jobs[jobs.length - 1];
-        setActiveJob(job);
-        setupWebSocket(job.id);
-        fetchCandidates(job.id);
-      }
-    } catch (e) {
-      console.error("Failed to fetch jobs:", e);
-    }
-  };
-
-  useEffect(() => {
-    checkSettings().then(() => checkActiveJob());
-  }, [checkSettings]);
-
   // ---------------------------------------------------------------------------
   // Event Handlers
   // ---------------------------------------------------------------------------
   const handleJobCreated = useCallback((job) => {
     setActiveJob(job);
-    setupWebSocket(job.id);
+    localStorage.setItem('activeJob', JSON.stringify(job));
+    setCandidates([]);
+    localStorage.removeItem('candidates');
+    setupWebSocket();
     showToast("Job Profile Created!");
   }, [setupWebSocket, showToast]);
 
-  const handleClearDB = useCallback(async () => {
-    if (!confirm("Are you sure you want to hard reset the database?")) return;
-    try {
-      const res = await fetch(`${API_URL}/jobs/clear`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      setActiveJob(null);
-      setCandidates([]);
-      setTerminalLogs([]);
-      setSelectedFiles([]);
-      showToast("Database Cleared!");
-    } catch (e) {
-      showToast("Failed to clear DB", true);
-    }
+  const handleClearDB = useCallback(() => {
+    if (!confirm("Are you sure you want to clear your local workspace?")) return;
+    setActiveJob(null);
+    setCandidates([]);
+    setTerminalLogs([]);
+    setSelectedFiles([]);
+    localStorage.removeItem('activeJob');
+    localStorage.removeItem('candidates');
+    showToast("Workspace Cleared!");
   }, [showToast]);
 
   const handleFilesSelected = useCallback((files) => {
@@ -159,10 +115,22 @@ function App() {
     if (!activeJob || selectedFiles.length === 0) return;
     setIsProcessing(true);
     setTerminalLogs([]);
+    setupWebSocket(); // Ensure WS is open before starting
+    
+    // We append the existing candidates so we can add to them if we process more
+    const currentCandidates = [...candidates];
     setCandidates([]);
 
     const formData = new FormData();
     selectedFiles.forEach(f => formData.append('files', f));
+    
+    // Append Job details directly to the form
+    formData.append('client_id', clientIdRef.current);
+    formData.append('job_title', activeJob.title);
+    formData.append('job_skills', activeJob.required_skills);
+    formData.append('job_experience', activeJob.min_experience_years.toString());
+    formData.append('job_education', activeJob.education || '');
+    formData.append('job_context', activeJob.additional_context || '');
 
     try {
       const headers = {};
@@ -180,27 +148,60 @@ function App() {
         }
       }
 
-      const res = await fetch(`${API_URL}/jobs/${activeJob.id}/candidates`, {
+      const res = await fetch(`${API_URL}/api/score_candidates`, {
         method: 'POST',
         headers: headers,
         body: formData
       });
+      
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.detail || `Server error: ${res.status}`);
       }
+
+      const newCandidates = await res.json();
+      
+      // Merge with old candidates and resort
+      const allCandidates = [...currentCandidates, ...newCandidates].sort((a, b) => b.score_data.match_score - a.score_data.match_score);
+      setCandidates(allCandidates);
+      localStorage.setItem('candidates', JSON.stringify(allCandidates));
+
     } catch (error) {
       setTerminalLogs(prev => [...prev, { msg: `Error: ${error.message}`, status: "error" }]);
+      setCandidates(currentCandidates); // Restore old candidates on failure
     } finally {
       setSelectedFiles([]);
       setIsProcessing(false);
     }
-  }, [activeJob, selectedFiles]);
+  }, [activeJob, selectedFiles, candidates, setupWebSocket]);
 
   const handleExportCSV = useCallback(() => {
-    if (!activeJob) return;
-    window.location.href = `${API_URL}/jobs/${activeJob.id}/export`;
-  }, [activeJob]);
+    if (candidates.length === 0) return;
+    
+    const headers = ["Candidate Name", "Match Score", "Verdict", "Years Exp", "Skills", "Key Strengths", "Concerns", "Filename"];
+    const rows = candidates.map(c => [
+      `"${c.score_data.candidate_name.replace(/"/g, '""')}"`,
+      c.score_data.match_score,
+      `"${c.score_data.verdict.replace(/"/g, '""')}"`,
+      c.score_data.years_experience,
+      `"${c.score_data.extracted_skills.join(", ").replace(/"/g, '""')}"`,
+      `"${c.score_data.key_strengths.join(" | ").replace(/"/g, '""')}"`,
+      `"${c.score_data.concerns.join(" | ").replace(/"/g, '""')}"`,
+      `"${c.filename.replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute("href", url);
+    link.setAttribute("download", `job_candidates_export.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [candidates]);
 
   const handleSettingsSaved = () => {
     setIsSettingsOpen(false);
@@ -221,29 +222,23 @@ function App() {
       />
 
       <div className={`flex flex-col h-full transition-all duration-500 ${!isConfigured ? 'blur-md opacity-50 pointer-events-none' : ''}`}>
-        {/* FIXED NAVBAR */}
         <div className="flex-none">
           <Navbar onClearDB={handleClearDB} onOpenSettings={() => setIsSettingsOpen(true)} />
         </div>
 
-        {/* MAIN DASHBOARD (Takes remaining height, no page scrolling) */}
         <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          
-          {/* LEFT COLUMN: JOB SETUP, FILE UPLOAD & TERMINAL */}
           <div className="lg:col-span-4 h-full flex flex-col space-y-4 overflow-y-auto pr-2 pb-4">
-            {/* Job Setup */}
             <div className="glass-panel p-6 glow-border transition-all flex flex-col h-fit flex-none">
               <h2 className="text-xl font-bold text-white mb-1">1. Define the Role</h2>
               <p className="text-sm text-slate-400 mb-3">Create the target profile for AI scoring.</p>
 
               {!activeJob ? (
-                <JobForm onJobCreated={handleJobCreated} apiUrl={API_URL} />
+                <JobForm onJobCreated={handleJobCreated} />
               ) : (
                 <ActiveJobCard job={activeJob} />
               )}
             </div>
 
-            {/* 2. File Upload */}
             <div className="flex-none">
               <FileUpload
                 selectedFiles={selectedFiles}
@@ -255,15 +250,12 @@ function App() {
               />
             </div>
 
-            {/* AI Terminal */}
             <div className="flex-1 flex flex-col min-h-[250px]">
               <TerminalOutput logs={terminalLogs} />
             </div>
           </div>
 
-          {/* RIGHT COLUMN: PIPELINE / CANDIDATES */}
           <div className="lg:col-span-8 h-full flex flex-col space-y-4 min-h-0">
-            {/* Ranked Candidates (Takes full height) */}
             {candidates.length > 0 ? (
               <div className="flex-1 glass-panel p-6 glow-border transition-all flex flex-col min-h-0">
                 <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3 flex-none">
@@ -282,7 +274,6 @@ function App() {
                   </button>
                 </div>
 
-                {/* Internally scrollable list */}
                 <div className="flex-1 overflow-y-auto pr-2 space-y-4 min-h-0">
                   {candidates.map((c) => (
                     <CandidateCard key={c.id} candidate={c} />

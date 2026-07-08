@@ -7,10 +7,10 @@ import { useState } from 'react';
   which is a simpler pattern for forms that don't need real-time field validation.
 */
 
-export default function JobForm({ onJobCreated, apiUrl }) {
+export default function JobForm({ onJobCreated }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
@@ -23,23 +23,10 @@ export default function JobForm({ onJobCreated, apiUrl }) {
       additional_context: formData.get('context')
     };
 
-    try {
-      const res = await fetch(`${apiUrl}/jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-
-      const job = await res.json();
-      onJobCreated(job);
-    } catch (error) {
-      console.error('Failed to create job:', error);
-      throw error; // Let the parent handle the toast
-    } finally {
-      setIsSubmitting(false);
-    }
+    // Stateless architecture: we immediately pass the job up to App.jsx to be stored in localStorage
+    // No backend database call is made here!
+    onJobCreated(payload);
+    setIsSubmitting(false);
   };
 
   const inputClass = "w-full bg-slate-900/50 border border-slate-700 rounded-md p-2 text-white focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none transition-all";

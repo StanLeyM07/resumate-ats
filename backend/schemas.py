@@ -26,9 +26,6 @@ class JobCreate(BaseModel):
     education: str = Field(..., description="Degree or education requirements")
     additional_context: Optional[str] = Field(None, description="Any other details, like 'Looking for leadership potential'")
 
-class JobResponse(JobCreate):
-    id: int
-
 # --- AI SCORING SCHEMAS (Output from Gemini) ---
 
 class CandidateScore(BaseModel):
@@ -39,13 +36,3 @@ class CandidateScore(BaseModel):
     years_experience: float = Field(..., description="Estimated total years of professional experience")
     key_strengths: List[str] = Field(..., description="2-3 bullet points highlighting why they fit the role based on projects/experience")
     concerns: List[str] = Field(..., description="1-2 bullet points highlighting missing skills or red flags")
-
-# --- API RESPONSE SCHEMAS ---
-
-class CandidateResponse(BaseModel):
-    id: int
-    job_id: int
-    filename: str
-    score_data: CandidateScore
-
-

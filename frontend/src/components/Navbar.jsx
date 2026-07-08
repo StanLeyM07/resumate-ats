@@ -24,10 +24,10 @@ export default function Navbar({ onClearDB, onOpenSettings }) {
         </button>
         <button
           onClick={onClearDB}
-          aria-label="Clear all data from the database"
+          aria-label="Clear all data from your local workspace"
           className="border border-red-500/50 text-red-400 px-4 py-2 rounded-md hover:bg-red-500/10 transition-colors font-semibold text-sm"
         >
-          Clear Database
+          Clear Workspace
         </button>
       </div>
     </nav>
