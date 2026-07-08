@@ -15,9 +15,13 @@ import CandidateCard from './components/CandidateCard';
 import Toast from './components/Toast';
 import AISettingsModal from './components/AISettingsModal';
 
-// Read from environment variable, fallback to localhost for development
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const WS_URL = API_URL.replace(/^http/, 'ws') + '/ws/progress';
+// In production (when served by FastAPI), we use relative paths for API and dynamic host for WebSockets.
+// In development, we fallback to localhost:8000
+const isProd = import.meta.env.PROD;
+const API_URL = import.meta.env.VITE_API_URL || (isProd ? '' : 'http://localhost:8000');
+const WS_URL = isProd 
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/progress`
+  : 'ws://localhost:8000/ws/progress';
 
 function App() {
   const [activeJob, setActiveJob] = useState(null);
