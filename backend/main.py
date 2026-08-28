@@ -156,8 +156,22 @@ async def score_candidates(
     processed_candidates.sort(key=lambda x: x["score_data"]["match_score"], reverse=True)
     return processed_candidates
 
-# Serve Frontend last so it doesn't intercept API routes
-app.mount("/", StaticFiles(directory=Path(__file__).parent.parent / "frontend" / "dist", html=True), name="frontend")
+# Serve the built frontend last so it doesn't intercept API routes.
+#
+# Mounted only if it exists. StaticFiles raises at construction time when the
+# directory is missing, which made importing the app impossible without first
+# running a frontend build - so the API could not be tested, or run on its own,
+# without Node. In the Docker image the build is always present; in a fresh
+# checkout or a CI runner it is not, and the API is still perfectly usable.
+_frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+else:
+    logger.warning(
+        "Frontend build not found at %s - serving the API only. "
+        "Run `npm run build` in frontend/ to serve the UI from this process.",
+        _frontend_dist,
+    )
 
 if __name__ == "__main__":
     import uvicorn
