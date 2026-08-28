@@ -26,3 +26,34 @@ jobs:
         run: pytest tests/ -q
       - name: Import the app
         run: python -c "from backend.main import app; print(f'{len(app.routes)} routes')"
+
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t resumate-app .
+
+      # Building proves the image assembles; it does not prove the app runs.
+      # The frontend is mounted conditionally in backend/main.py, so this also
+      # guards against the image shipping without its built frontend.
+      - name: Run
+        run: docker run -d --name resumate-test -p 8000:8000 resumate-app
+
+      - name: Wait for startup
+        run: timeout 60 bash -c 'until curl -sf http://localhost:8000/docs > /dev/null; do sleep 2; done'
+
+      - name: Serves the built frontend, not the API-only fallback
+        run: |
+          curl -sf http://localhost:8000/ | grep -q "ResuMate"
+          ! docker logs resumate-test 2>&1 | grep -q "Frontend build not found"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker logs resumate-test
+
+      - name: Stop
+        if: always()
+        run: docker rm -f resumate-test
