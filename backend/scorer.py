@@ -18,11 +18,11 @@ Key Concepts Used Here:
 """
 
 import os
+import re
 import json
 import asyncio
 import logging
 from openai import OpenAI
-from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -51,6 +51,41 @@ Evaluate the resume and output a JSON object strictly matching this schema:
 
 IMPORTANT: You must return ONLY valid JSON. Do not wrap the JSON in markdown formatting (like ```json), and do not include any other text before or after the JSON.
 """
+
+def parse_model_json(raw_response: str) -> dict:
+    """Turn a raw model response into a dict, tolerating markdown fences.
+
+    Pure and synchronous on purpose: this is the part that breaks in production
+    (models ignore "return only JSON" instructions often enough to matter), so
+    it must be testable without an API key or a network call. See
+    tests/test_scorer.py.
+
+    Handles the fence variants actually observed: ```json, ```JSON, a bare
+    ```, and prose before or after the block.
+    """
+    if raw_response is None:
+        raise ValueError("Model returned no content.")
+
+    text = raw_response.strip()
+
+    # A fenced block anywhere in the response wins over surrounding prose.
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    else:
+        # No closing fence (truncated output): drop an opening fence if present.
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
+        # Otherwise fall back to the outermost braces, ignoring any prose.
+        if not text.startswith("{"):
+            braces = re.search(r"\{.*\}", text, re.DOTALL)
+            if braces:
+                text = braces.group(0)
+
+    if not text:
+        raise ValueError("Model returned an empty response.")
+
+    return json.loads(text)
+
 
 def _sync_score_candidate(prompt: str, api_key: str, base_url: str, model_name: str) -> str:
     """Synchronous helper that performs the blocking OpenAI API call using dynamic settings."""
@@ -107,19 +142,8 @@ async def score_candidate(job: JobCreate, resume_text: str, ai_config: dict) -> 
         )
         logger.info(f"AI Raw Response: {raw_response[:100]}...")
 
-        # Strip markdown fences if the model still outputs them despite instructions
-        clean_response = raw_response.strip()
-        if clean_response.startswith("```json"):
-            clean_response = clean_response[7:]
-        if clean_response.startswith("```"):
-            clean_response = clean_response[3:]
-        if clean_response.endswith("```"):
-            clean_response = clean_response[:-3]
-        
-        clean_response = clean_response.strip()
-
-        # Parse JSON and validate against CandidateScore Pydantic model
-        data_dict = json.loads(clean_response)
+        # Parse JSON (tolerating markdown fences) and validate against the schema
+        data_dict = parse_model_json(raw_response)
         score_data = CandidateScore(**data_dict)
         return score_data
 
