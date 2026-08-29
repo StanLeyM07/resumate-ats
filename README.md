@@ -14,8 +14,7 @@ ranked shortlist with reasoning.
 > **Status: finished side project, not actively developed.** It runs from a
 > single `docker build`. There is no hosted demo, because scoring calls a paid
 > LLM API and an open endpoint would be somebody else's bill. The screenshots
-> below are the real UI. For a deployed app you can click, see
-> **[Sifa](https://sifa-beryl.vercel.app)**.
+> below are the real UI.
 
 ![Defining the role and queueing CVs](docs/01-define-role.png)
 
